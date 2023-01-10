@@ -62,6 +62,13 @@ def pytest_testnodedown(node, error):
 def pytest_xdist_node_collection_finished(node, ids):
     """called by the controller node when a worker node finishes collecting."""
 
+@pytest.hookspec(firstresult=True)
+def pytest_xdist_make_nodemanager(config):
+    """ called to setup node manager for managing active worker nodes """
+
+@pytest.hookspec(firstresult=True)
+def pytest_xdist_make_sessionmanager(config):
+    """ called by framework to create session manager """
 
 @pytest.hookspec(firstresult=True)
 def pytest_xdist_make_scheduler(config, log):

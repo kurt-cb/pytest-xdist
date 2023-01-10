@@ -200,6 +200,10 @@ def pytest_addhooks(pluginmanager):
 # distributed testing initialization
 # -------------------------------------------------------------------------
 
+@pytest.hookimpl(trylast=True)
+def pytest_xdist_make_sessionmanager(config):
+    return DSession(config)
+
 
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
@@ -216,9 +220,7 @@ def pytest_configure(config):
     # Create the distributed session in case we have a valid distribution
     # mode and test environments.
     if config.getoption("dist") != "no" and config.getoption("tx"):
-        from xdist.dsession import DSession
-
-        session = DSession(config)
+        session = config.hook.pytest_xdist_make_sessionmanager(config=config)
         config.pluginmanager.register(session, "dsession")
         tr = config.pluginmanager.getplugin("terminalreporter")
         if tr:

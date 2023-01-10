@@ -73,7 +73,7 @@ class DSession:
         The nodes are setup to put their events onto self.queue.  As
         soon as nodes start they will emit the worker_workerready event.
         """
-        self.nodemanager = NodeManager(self.config)
+        self.nodemanager = self.config.hook.pytest_xdist_make_nodemanager(config=self.config)
         nodes = self.nodemanager.setup_nodes(putevent=self.queue.put)
         self._active_nodes.update(nodes)
         self._session = session
@@ -90,6 +90,10 @@ class DSession:
     def pytest_collection(self):
         # prohibit collection of test items in controller process
         return True
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_xdist_make_nodemanager(self, config):
+        return NodeManager(config)
 
     @pytest.hookimpl(trylast=True)
     def pytest_xdist_make_scheduler(self, config, log):
