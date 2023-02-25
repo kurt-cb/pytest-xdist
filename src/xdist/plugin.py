@@ -212,6 +212,7 @@ def pytest_addhooks(pluginmanager):
 
 @pytest.hookimpl(trylast=True)
 def pytest_xdist_make_sessionmanager(config):
+    from xdist.dsession import DSession
     return DSession(config)
 
 

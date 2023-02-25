@@ -127,7 +127,7 @@ class DSession:
     def loop_once(self):
         """Process one callback from one of the workers."""
         while 1:
-            if not self._active_nodes:
+            if not self._active_nodes and not getattr(self.sched, "allow_no_nodes", False):
                 # If everything has died stop looping
                 self.triggershutdown()
                 raise RuntimeError("Unexpectedly no active workers available")
@@ -135,7 +135,9 @@ class DSession:
                 eventcall = self.queue.get(timeout=2.0)
                 break
             except Empty:
+                self.config.hook.pytest_xdist_idle_poll(config=self.config, session=self, scheduler=self.sched, nodemanager=self.nodemanager)
                 continue
+
         callname, kwargs = eventcall
         assert callname, kwargs
         method = "worker_" + callname
@@ -322,6 +324,23 @@ class DSession:
         )
         self.config.hook.pytest_warning_recorded.call_historic(kwargs=kwargs)
 
+    def start_new_node_with_env(self, env):
+        """ start a new node with specified environment variables
+
+        this can be used to start a worker with a specific configuration
+        and scheduler can assign work based on that configuration.
+        """
+        import execnet
+
+        spec = execnet.XSpec("popen")
+        self.nodemanager.group.allocate_id(spec)
+        self.trdist._specs.append(spec)
+        self.trdist.setstatus(spec, "I", show=True)
+        spec.env.update(env)
+        node =self.nodemanager.setup_node(spec, self.queue.put)
+        self._active_nodes.add(node)
+        return node
+
     def _clone_node(self, node):
         """Return new node based on an existing one.
 
@@ -461,3 +480,4 @@ def get_default_max_worker_restart(config):
         # if --max-worker-restart was not provided, use a reasonable default (#226)
         result = config.option.numprocesses * 4
     return result
+
