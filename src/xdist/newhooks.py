@@ -74,6 +74,9 @@ def pytest_xdist_make_sessionmanager(config):
 def pytest_xdist_make_scheduler(config, log):
     """return a node scheduler implementation"""
 
+@pytest.hookspec()
+def pytest_xdist_idle_poll(config, session, scheduler, nodemanager):
+    """ called every few seconds when the master node is ilde.  Can be used to add workers on demand """
 
 @pytest.hookspec(firstresult=True)
 def pytest_xdist_auto_num_workers(config):
