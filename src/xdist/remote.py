@@ -5,12 +5,16 @@
     on the rest of the xdist code.  This means that the xdist-plugin
     needs not to be installed in remote environments.
 """
+from __future__ import annotations
 
 import contextlib
 import sys
 import os
 import time
 from typing import Any
+import pickle
+import logging
+import copy
 
 import pytest
 from execnet.gateway_base import dumps, DumpError
@@ -56,6 +60,81 @@ def worker_title(title):
         pass
 
 
+class DummyNext:
+    """ delayed next item collection object
+        The idea here is to pass the next item to work on to
+        pytest without actually knowing what it is.
+        When pytest wants to operate on the next item
+        (usually after the previous test is finished),
+        we ask the scheduler for another item, instead
+        of forcing the scheduler to add two items of
+        unknown work size to a worker.
+
+        pytest will call the listchain() function to get the details of
+        the next item.
+
+        """
+    def __init__(self, parent: WorkerInteractor):
+        self.parent = parent
+        self.real_next = None
+        self.nextitem_index = None
+
+    def __repr__(self):
+        return f'DummyNext({self.nextitem_index})'
+
+    def _fetch(self):
+        if self.nextitem_index == None:
+            self.parent.sendevent("runtest_need_work")
+            self.real_next, self.nextitem_index = self.parent.get_more_work()
+
+    def _next_index(self):
+        self._fetch()
+        return self.nextitem_index
+
+    def listchain(self):
+        """ this is a proxy for the next time's listchain """
+        self._fetch()
+
+        return self.real_next.listchain() if self.real_next else []
+
+class RemoteMessageHandler(logging.Handler):
+    """
+    This handler sends events to a queue. Typically, it would be used together
+    with a multiprocessing Queue to centralise logging to file in one process
+    (in a multi-process application), so as to avoid file write contention
+    between processes.
+
+    This code is new in Python 3.2, but this class can be copy pasted into
+    user code for use with earlier Python versions.
+    """
+
+    def __init__(self, queue):
+        """
+        Initialise an instance, using the passed queue.
+        """
+        logging.Handler.__init__(self)
+        self.queue = queue
+
+    def emit(self, record):
+        """
+        Emit a record.
+
+        Writes the LogRecord to the queue, preparing it for pickling first.
+        """
+        try:
+            msg = self.format(record)
+            # bpo-35726: make copy of record to avoid affecting other handlers in the chain.
+            record = copy.copy(record)
+            record.message = msg
+            record.msg = msg
+            record.args = None
+            record.exc_info = None
+            record.exc_text = None
+            x = pickle.dumps(record)
+            self.queue.send_log(x)
+        except Exception as e:
+            self.handleError(record)
+
 class WorkerInteractor:
     SHUTDOWN_MARK = object()
 
@@ -69,12 +148,23 @@ class WorkerInteractor:
         self.nextitem_index = None
         config.pluginmanager.register(self)
 
+        # pump cli messages back to master if a level is set
+        if config.option.log_cli_level:
+            rootlog = logging.getLogger()
+            myhandler = RemoteMessageHandler(self)
+            rootlog.addHandler(myhandler)
+            level = logging.getLevelName(config.option.log_cli_level)
+            myhandler.setLevel(level)
+
     def _make_queue(self):
         return self.channel.gateway.execmodel.queue.Queue()
 
     def sendevent(self, name, **kwargs):
         self.log("sending", name, kwargs)
         self.channel.send((name, kwargs))
+
+    def send_log(self, record):
+        self.sendevent("runtest_logmessage", record=record)
 
     @pytest.hookimpl
     def pytest_internalerror(self, excrepr):
@@ -146,19 +236,39 @@ class WorkerInteractor:
             self.run_one_test()
         return True
 
+    def get_more_work(self):
+        """ as the master node for more work so we know what to tear down
+
+            pytest tears down fixtures only if the next test does not need them
+            typically this is for module or package scoped fixtures.
+
+        """
+        next =  self.torun.get()
+        if next is not self.SHUTDOWN_MARK:
+            next_item = self.session.items[next]
+        else:
+            next_item = None
+        return next_item, next
+
     def run_one_test(self):
         items = self.session.items
-        self.item_index, self.nextitem_index = self.nextitem_index, self.torun.get()
+        self.item_index = self.nextitem_index
         item = items[self.item_index]
-        if self.nextitem_index is self.SHUTDOWN_MARK:
-            nextitem = None
-        else:
-            nextitem = items[self.nextitem_index]
 
         worker_title("[pytest-xdist running] %s" % item.nodeid)
 
         start = time.time()
-        self.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+        self.nextitem_index = None
+        #nextitem is not known till this test is complete and more work is assigned
+        # so DummyNext will ask for more work when test is complete (before teardown)
+        # this helps load distrobution by not assigning work until pytest needs to know
+        # what is next instead of adding one extra test to each worker.
+        #nextitem = items[self.item_index+1] if self.item_index+1 < len(items) else None
+        next = DummyNext(self)
+        try:
+            self.config.hook.pytest_runtest_protocol(item=item,nextitem=next)
+        except BaseException as e:
+            self.sendevent("exception", exception=pickle.dumps(sys.exc_info()))
         duration = time.time() - start
 
         worker_title("[pytest-xdist idle]")
@@ -166,6 +276,9 @@ class WorkerInteractor:
         self.sendevent(
             "runtest_protocol_complete", item_index=self.item_index, duration=duration
         )
+        # promote the next item of work
+        self.nextitem_index = next._next_index()
+
 
     def pytest_collection_modifyitems(self, session, config, items):
         # add the group name to nodeid as suffix if --dist=loadgroup
@@ -184,7 +297,7 @@ class WorkerInteractor:
     @pytest.hookimpl
     def pytest_collection_finish(self, session):
         try:
-            topdir = str(self.config.rootpath)
+             topdir = str(self.config.rootpath)
         except AttributeError:  # pytest <= 6.1.0
             topdir = str(self.config.rootdir)
 
