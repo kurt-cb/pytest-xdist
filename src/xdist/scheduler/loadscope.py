@@ -124,7 +124,7 @@ class LoadScopeScheduling:
             return False
 
         for assigned_unit in self.assigned_work.values():
-            if self._pending_of(assigned_unit) >= 2:
+            if self._pending_of(assigned_unit) > 0:
                 return False
 
         return True
@@ -241,6 +241,12 @@ class LoadScopeScheduling:
         self.assigned_work[node][scope][nodeid] = True
         self._reschedule(node)
 
+    def need_work(self, node):
+        # work needs more work, but it has not completed
+        # the current item (pytest looks ahead one item
+        # to determine what fixtures to tear down)
+        self._reschedule(node, 2)
+
     def mark_test_pending(self, item):
         raise NotImplementedError()
 
@@ -289,12 +295,19 @@ class LoadScopeScheduling:
         """
         return nodeid.rsplit("::", 1)[0]
 
+    @property
+    def pending_work(self):
+        units = []
+        for assigned_unit in self.assigned_work.values():
+            units.append([list(scope.values()).count(False) for scope in assigned_unit.values()])
+        return units
+
     def _pending_of(self, workload):
         """Return the number of pending tests in a workload."""
         pending = sum(list(scope.values()).count(False) for scope in workload.values())
         return pending
 
-    def _reschedule(self, node):
+    def _reschedule(self, node, min_work=1):
         """Maybe schedule new items on the node.
 
         If there are any globally pending work units left then this will check
@@ -314,7 +327,7 @@ class LoadScopeScheduling:
 
         # Check that the node is almost depleted of work
         # 2: Heuristic of minimum tests to enqueue more work
-        if self._pending_of(self.assigned_work[node]) > 2:
+        if self._pending_of(self.assigned_work[node]) >= min_work:
             return
 
         # Pop one unit of work and assign it

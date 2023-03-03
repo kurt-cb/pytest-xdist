@@ -10,6 +10,7 @@ from xdist.scheduler import (
     LoadGroupScheduling,
     WorkStealingScheduling,
 )
+import logging
 
 
 from queue import Empty, Queue
@@ -145,6 +146,7 @@ class DSession:
         self.log("calling method", method, kwargs)
         call(**kwargs)
         if self.sched.tests_finished:
+            self.log("tests finished!!!!", method, kwargs)
             self.triggershutdown()
 
     #
@@ -281,6 +283,13 @@ class DSession:
         rep.node = node
         self.config.hook.pytest_runtest_logreport(report=rep)
         self._handlefailures(rep)
+
+    def worker_runtest_logmessage(self, node, level, msg):
+        logging.log(level, msg)
+
+    def worker_runtest_need_work(self, node):
+        if getattr(self.sched, "need_work", None):
+            self.sched.need_work(node)
 
     def worker_runtest_protocol_complete(self, node, item_index, duration):
         """
