@@ -153,7 +153,7 @@ class WorkerInteractor:
             rootlog = logging.getLogger()
             myhandler = RemoteMessageHandler(self)
             rootlog.addHandler(myhandler)
-            level = logging.getLevelName(config.option.log_cli_level) if not config.option.log_cli_level.is_numeric() else int(config.option.log_cli_level)
+            level = logging.getLevelName(config.option.log_cli_level) if not config.option.log_cli_level.isnumeric() else int(config.option.log_cli_level)
             myhandler.setLevel(level)
 
     def _make_queue(self):
