@@ -12,7 +12,7 @@ from xdist.scheduler import (
 )
 import logging
 
-
+import pickle
 from queue import Empty, Queue
 
 
@@ -284,8 +284,16 @@ class DSession:
         self.config.hook.pytest_runtest_logreport(report=rep)
         self._handlefailures(rep)
 
-    def worker_runtest_logmessage(self, node, level, msg):
-        logging.log(level, msg)
+    def worker_runtest_logmessage(self, node, record):
+        record = pickle.loads(record)
+        for handler in logging.getLogger().handlers:
+
+            if not True: #self.respect_handler_level:
+                process = True
+            else:
+                process = record.levelno >= handler.level
+            if process:
+                handler.handle(record)
 
     def worker_runtest_need_work(self, node):
         if getattr(self.sched, "need_work", None):

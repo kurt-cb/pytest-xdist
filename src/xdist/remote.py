@@ -14,6 +14,7 @@ import time
 from typing import Any
 import pickle
 import logging
+import copy
 
 import pytest
 from execnet.gateway_base import dumps, DumpError
@@ -122,8 +123,16 @@ class RemoteMessageHandler(logging.Handler):
         """
         try:
             msg = self.format(record)
-            self.queue.send_log(record.levelno, msg)
-        except Exception:
+            # bpo-35726: make copy of record to avoid affecting other handlers in the chain.
+            record = copy.copy(record)
+            record.message = msg
+            record.msg = msg
+            record.args = None
+            record.exc_info = None
+            record.exc_text = None
+            x = pickle.dumps(record)
+            self.queue.send_log(x)
+        except Exception as e:
             self.handleError(record)
 
 class WorkerInteractor:
@@ -138,7 +147,14 @@ class WorkerInteractor:
         self.torun = self._make_queue()
         self.nextitem_index = None
         config.pluginmanager.register(self)
-        logging.getLogger().addHandler(RemoteMessageHandler(self))
+
+        # pump cli messages back to master if a level is set
+        if config.option.log_cli_level:
+            rootlog = logging.getLogger()
+            myhandler = RemoteMessageHandler(self)
+            rootlog.addHandler(myhandler)
+            level = logging.getLevelName(config.option.log_cli_level)
+            myhandler.setLevel(level)
 
     def _make_queue(self):
         return self.channel.gateway.execmodel.queue.Queue()
@@ -147,8 +163,8 @@ class WorkerInteractor:
         self.log("sending", name, kwargs)
         self.channel.send((name, kwargs))
 
-    def send_log(self, level, msg):
-        self.sendevent("runtest_logmessage", level=level, msg=msg)
+    def send_log(self, record):
+        self.sendevent("runtest_logmessage", record=record)
 
     @pytest.hookimpl
     def pytest_internalerror(self, excrepr):
