@@ -187,6 +187,10 @@ class DSession:
             assert not crashitem, (crashitem, node)
         self._active_nodes.remove(node)
 
+    def worker_collect_error(self, node, formatted_error):
+        logging.error("collection failed")
+        logging.error(formatted_error)
+
     def worker_internal_error(self, node, formatted_error):
         """
         pytest_internalerror() was called on the worker.

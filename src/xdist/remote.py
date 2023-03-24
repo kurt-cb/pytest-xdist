@@ -15,6 +15,7 @@ from typing import Any
 import pickle
 import logging
 import copy
+import traceback
 
 import pytest
 from execnet.gateway_base import dumps, DumpError
@@ -186,9 +187,14 @@ class WorkerInteractor:
         yield
         self.sendevent("workerfinished", workeroutput=self.config.workeroutput)
 
-    @pytest.hookimpl
+    @pytest.hookimpl(hookwrapper=True, tryfirst=True)
     def pytest_collection(self, session):
         self.sendevent("collectionstart")
+        outcome = yield
+        if outcome.excinfo:
+            (_type, exc, tb) = outcome.excinfo
+            msg = "{}".format(exc)
+            interactor.sendevent("collect_error", formatted_error=msg)
 
     def handle_command(self, command):
         if command is self.SHUTDOWN_MARK:

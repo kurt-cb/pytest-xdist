@@ -344,6 +344,8 @@ class WorkerController:
                 self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "internal_error":
                 self.notify_inproc(eventname, node=self, **kwargs)
+            elif eventname == "collect_error":
+                self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "workerfinished":
                 self._down = True
                 self.workeroutput = kwargs["workeroutput"]
