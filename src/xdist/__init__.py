@@ -4,7 +4,9 @@ from xdist.plugin import (
     get_xdist_worker_id,
     is_xdist_controller,
 )
-from xdist._version import version as __version__
+import importlib.metadata
+
+__version__ = importlib.metadata.version("pytest-xdist")
 
 __all__ = [
     "__version__",
