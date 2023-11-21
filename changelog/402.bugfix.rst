@@ -1,0 +1,4 @@
+Honor --log-cli-level by implementing a logger relay handler that pumps the log message back to the master node,
+which then uses the master logger to display the log events.
+
+To use it, set the --log-cli-level option as in normal pytest, and it will push the log level requested.

@@ -61,7 +61,7 @@ def worker_title(title):
 
 class RemoteMessageHandler(logging.Handler):
     """
-    This handler sends events to a queue. Typically, it would be used together
+    This handler sends events to a worker interactor. Typically, it would be used together
     with a multiprocessing Queue to centralise logging to file in one process
     (in a multi-process application), so as to avoid file write contention
     between processes.
@@ -73,12 +73,12 @@ class RemoteMessageHandler(logging.Handler):
     Source: https://github.com/python/cpython/blob/8f324b7ecd2df3036fab098c4c8ac185ac07b277/Lib/logging/handlers.py#L1412
     """
 
-    def __init__(self, queue):
+    def __init__(self, worker_interactor):
         """
-        Initialise an instance, using the passed queue.
+        Initialise an instance, using the passed worker interactor.
         """
         logging.Handler.__init__(self)
-        self.queue = queue
+        self.worker_interactor = worker_interactor
 
     def emit(self, record):
         """
@@ -95,8 +95,8 @@ class RemoteMessageHandler(logging.Handler):
             record.args = None
             record.exc_info = None
             record.exc_text = None
-            x = pickle.dumps(record)
-            self.queue.send_log(x)
+            x = pickle.dumps(record, protocol=4)
+            self.worker_interactor.send_log(x)
         except Exception:
             self.handleError(record)
 
@@ -124,7 +124,7 @@ class WorkerInteractor:
             myhandler.setLevel(level)
 
     def _make_queue(self):
-        return self.channel.gateway.execmodel.queue.Queue()
+        return self.channel.gateway.execmodel.worker_interactor.Queue()
 
     def _get_next_item_index(self):
         """Gets the next item from test queue. Handles the case when the queue
@@ -192,7 +192,7 @@ class WorkerInteractor:
         old_queue, self.torun = self.torun, self._make_queue()
 
         def old_queue_get_nowait_noraise():
-            with contextlib.suppress(self.channel.gateway.execmodel.queue.Empty):
+            with contextlib.suppress(self.channel.gateway.execmodel.worker_interactor.Empty):
                 return old_queue.get_nowait()
 
         for i in iter(old_queue_get_nowait_noraise, None):
